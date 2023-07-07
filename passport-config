@@ -1,0 +1,41 @@
+require("dotenv").config();
+const passport = require("passport");
+const JwtStrategy = require("passport-jwt").Strategy;
+const ExtractJwt = require("passport-jwt").ExtractJwt;
+const db = require("./db");
+
+const jwtOptions = {
+  jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+  secretOrKey: process.env.JWT_SECRET,
+};
+
+// Define the JWT strategy
+const jwtStrategy = new JwtStrategy(jwtOptions, async (payload, done) => {
+  console.log("payload", payload);
+  try {
+    // Find the user based on the ID in the payload
+    const user = await db.query('SELECT * FROM "User" WHERE id = $1', [
+      payload.id,
+    ]);
+
+    // If user is found, authentication succeeds
+    if (user) {
+      return done(null, user);
+    }
+
+    // If user is not found, authentication fails
+    return done(null, false);
+  } catch (error) {
+    return done(error, false);
+  }
+});
+
+// Register the JWT strategy with Passport
+passport.use(jwtStrategy);
+
+// Middleware for protecting routes with JWT authentication
+const requireAuth = passport.authenticate("jwt", { session: false });
+
+module.exports = {
+  requireAuth,
+};
