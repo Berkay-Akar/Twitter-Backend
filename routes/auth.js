@@ -8,6 +8,8 @@ const jwt = require("jsonwebtoken");
 
 router.post("/login", async (req, res) => {
   const { username, password } = req.body;
+  console.log("username:", username);
+  console.log("password:", password);
 
   try {
     const result = await db.query('SELECT * FROM "User" WHERE username = $1', [
@@ -17,7 +19,8 @@ router.post("/login", async (req, res) => {
     if (!user) {
       return res.status(401).json({ error: "User does not exist" });
     }
-    console.log("user:", user);
+
+    //delete user.password;
     // compare password, if match, generate token
     comparePassword(password, user.password).then((isMatch) => {
       if (isMatch) {
@@ -25,7 +28,9 @@ router.post("/login", async (req, res) => {
           { id: user.id, username: user.username },
           process.env.JWT_SECRET
         );
-        return res.status(200).json({ token });
+
+        console.log("Successfully logged in!");
+        return res.status(200).json({ token, user });
       } else {
         return res.status(401).json({ error: "Incorrect password" });
       }
@@ -53,7 +58,7 @@ router.get("/authenticated", async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    res.json({ user: user.rows[0] });
+    res.json({ user: user.rows[0], token });
   } catch (error) {
     console.log("Error:", error);
     res.status(500).json({ error: "Server error" });
@@ -61,14 +66,31 @@ router.get("/authenticated", async (req, res) => {
 });
 
 router.post("/register", async (req, res) => {
-  console.log(req.body);
   try {
+    let user = await db.query('SELECT * FROM "User" WHERE username = $1', [
+      req.body.username,
+    ]);
+    if (user.rows[0]) {
+      console.log("User already exists:", user.rows[0]);
+      return res.status(401).json({ error: "User already exists" });
+    }
+    if (req.body.username.length < 4 || req.body.username.length > 20) {
+      return res
+        .status(401)
+        .json({ error: "Username must be between 4 and 20 characters" });
+    }
+    if (req.body.password.length < 8 || req.body.password.length > 20) {
+      return res
+        .status(401)
+        .json({ error: "Password must be between 8 and 20 characters" });
+    }
+
     const hashedPassword = await hashPassword(req.body.password);
-    const user = await db.query(
+    user = await db.query(
       'INSERT INTO "User" (full_name, username, password) VALUES ($1, $2, $3) RETURNING id',
       [req.body.name, req.body.username, hashedPassword]
     );
-    // passport jwt generates a token and send to the client
+    // passport jwt generates a token and sends it to the client
     const token = jwt.sign(
       { id: user.rows[0].id, username: user.rows[0].username },
       process.env.JWT_SECRET
