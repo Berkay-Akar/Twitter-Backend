@@ -64,7 +64,7 @@ router.post("/", async (req, res) => {
 // get all comments for a post
 router.get("/:id", async (req, res) => {
   try {
-    const { post_id } = req.body;
+    const { id } = req.params;
     const result = await db.query(
       `SELECT c.*, u.username, u.id, p.post_text
         FROM "Comments" c
