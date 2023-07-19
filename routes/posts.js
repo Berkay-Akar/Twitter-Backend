@@ -19,25 +19,8 @@ router.get("/", async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
     const result = await db.query(
-      'SELECT p.*, u.username, u.id FROM "Posts" p JOIN "User" u ON p.post_user = u.id WHERE p.post_user = $1 ORDER BY p.created_at DESC',
-      [user.rows[0].id]
-    );
-    const posts = result.rows;
-    res.json({ posts });
-    console.log(posts);
-  } catch (error) {
-    console.error("Error getting posts", error);
-    res.status(500).json({ error: "Error getting posts" });
-  }
-});
-
-// get all posts for a user
-router.get("/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const result = await db.query(
-      'SELECT * FROM "Posts" WHERE post_user = $1 ORDER BY created_at DESC',
-      [id]
+      'SELECT p.*, u.username, u.full_name, u.id FROM "Posts" p JOIN "User" u ON p.post_user = u.id  ORDER BY p.created_at DESC',
+      []
     );
     const posts = result.rows;
     res.json({ posts });
@@ -71,13 +54,29 @@ router.post("/likes", async (req, res) => {
 // create a post
 router.post("/", async (req, res) => {
   try {
+    const token = req.headers.authorization.split(" ")[1];
+    console.log("token:", token);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    const user = await db.query(
+      'SELECT id, username, full_name FROM "User" WHERE id = $1',
+      [decoded.id]
+    );
+
+    if (!user.rows[0]) {
+      return res.status(404).json({ error: "User not found" });
+    }
     const { post_user, post_text } = req.body;
     const result = await db.query(
       'INSERT INTO "Posts" (post_user, post_text) VALUES ($1, $2) RETURNING *',
-      [post_user, post_text]
+      [decoded.id, post_text]
     );
     const post = result.rows[0];
-    res.status(201).json({ post });
+    const username = user.rows[0].username;
+    const full_name = user.rows[0].full_name;
+    res
+      .status(201)
+      .json({ post: { ...post, username }, post: { ...post, full_name } });
     console.log(post);
   } catch (error) {
     console.error("Error creating post", error);
@@ -107,10 +106,34 @@ router.put("/:id", async (req, res) => {
 });
 
 // delete a post
-router.delete("/", async (req, res) => {
+router.delete("/:id", async (req, res) => {
   try {
-    const { id } = req.body;
-    console.log("id:", id);
+    const token = req.headers.authorization.split(" ")[1];
+    console.log("token:", token);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    const user = await db.query(
+      'SELECT id, username, full_name FROM "User" WHERE id = $1',
+      [decoded.id]
+    );
+
+    if (!user.rows[0]) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const { id } = req.params;
+
+    const postToDelete = await db.query(
+      'SELECT * FROM "Posts" WHERE post_id = $1',
+      [id]
+    );
+    if (!postToDelete.rows[0]) {
+      return res.status(404).json({ error: "Post not found" });
+    }
+    if (postToDelete.rows[0].post_user !== decoded.id) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
     const result = await db.query(
       'DELETE FROM "Posts" WHERE post_id = $1 RETURNING *',
       [id]
@@ -128,14 +151,14 @@ router.delete("/", async (req, res) => {
 });
 
 // get sigle tweet by id
-router.get("/tweets/:id", async (req, res) => {
+router.get("/:id", async (req, res) => {
   try {
     const { id } = req.params;
     const result = await db.query(
-      'SELECT c.*, p.post_text FROM "Comments" c JOIN "Posts" p ON c.post_id = p.post_id WHERE p.post_id = $1',
+      `SELECT JSON_BUILD_OBJECT( 'id', p.post_id, 'text', p.post_text, 'createdat', p.created_at, 'user', JSON_BUILD_OBJECT( 'id', u.id, 'username', u.username ), 'comments', JSON_AGG( JSON_BUILD_OBJECT( 'comment_id', c.comment_id, 'comment_text', c.comment_text, 'created_at', c.created_at, 'user', JSON_BUILD_OBJECT( 'id', uc.id, 'username', uc.username ) ) ORDER BY c.created_at DESC ) ) AS post FROM "Posts" p LEFT JOIN "Comments" c ON p.post_id = c.post_id LEFT JOIN "User" u ON p.post_user = u.id LEFT JOIN "User" uc ON c.comment_user = uc.id WHERE p.post_id = $1 GROUP BY p.post_id, u.id, uc.id;`,
       [id]
     );
-    const post = result.rows;
+    const post = result.rows[0].post;
     if (!post) {
       return res.status(404).json({ error: "Post not found" });
     }
@@ -148,31 +171,5 @@ router.get("/tweets/:id", async (req, res) => {
 });
 
 // /tweets/ - get all tweets for a user (home feed)
-router.get("/tweets/", async (req, res) => {
-  try {
-    const token = req.headers.authorization.split(" ")[1];
-    console.log("token:", token);
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-    const user = await db.query(
-      'SELECT id, username, full_name FROM "User" WHERE id = $1',
-      [decoded.id]
-    );
-
-    if (!user.rows[0]) {
-      return res.status(404).json({ error: "User not found" });
-    }
-    const result = await db.query(
-      'SELECT p.*, u.username, u.id FROM "Posts" p JOIN "User" u ON p.post_user = u.id WHERE p.post_user = $1 ORDER BY p.created_at DESC',
-      [user.rows[0].id]
-    );
-    const posts = result.rows;
-    res.json({ posts });
-    console.log(posts);
-  } catch (error) {
-    console.error("Error getting posts", error);
-    res.status(500).json({ error: "Error getting posts" });
-  }
-});
 
 module.exports = router;

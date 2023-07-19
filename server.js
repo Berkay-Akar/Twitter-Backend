@@ -5,6 +5,7 @@ const authRoutes = require("./routes/auth");
 const profileRoutes = require("./routes/profile");
 const postsRoutes = require("./routes/posts");
 const commentsRoutes = require("./routes/comments");
+const likesRoutes = require("./routes/likes");
 const cors = require("cors");
 const PORT = 3001;
 
@@ -15,8 +16,9 @@ app.use(cors());
 
 app.use(authRoutes);
 app.use("/profile", profileRoutes);
-app.use("/posts", postsRoutes);
+app.use("/tweets", postsRoutes);
 app.use("/comments", commentsRoutes);
+app.use("/likes", likesRoutes);
 
 app.listen(PORT, () => {
   console.log(`Server running on port http://localhost:${PORT}`);

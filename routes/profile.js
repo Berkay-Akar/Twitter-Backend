@@ -1,18 +1,7 @@
 const express = require("express");
 const db = require("../db");
 const router = express.Router();
-
-router.get("/", async (req, res) => {
-  try {
-    const result = await db.query('SELECT * FROM "User"');
-    const users = result.rows;
-    res.json({ users });
-    console.log(users);
-  } catch (error) {
-    console.error("Error getting users", error);
-    res.status(500).json({ error: "Error getting users" });
-  }
-});
+const jwt = require("jsonwebtoken");
 
 router.get("/:id", async (req, res) => {
   try {
@@ -79,6 +68,34 @@ router.delete("/:id", async (req, res) => {
   } catch (error) {
     console.error("Error delete user", error);
     res.status(500).json({ error: "Error delete user" });
+  }
+});
+
+router.get("/", async (req, res) => {
+  try {
+    const token = req.headers.authorization.split(" ")[1];
+    console.log("token:", token);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    const user = await db.query(
+      'SELECT id, username, full_name FROM "User" WHERE id = $1',
+      [decoded.id]
+    );
+
+    if (!user.rows[0]) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    console.log("user:", user.rows[0]);
+    const result = await db.query(
+      `SELECT JSON_BUILD_OBJECT( 'id', u.id, 'username', u.username, 'full_name', u.full_name, 'posts', JSON_AGG( JSON_BUILD_OBJECT( 'post_user', p.post_user, 'username', u.username, 'full_name', u.full_name, 'post_id', p.post_id, 'post_text', p.post_text, 'created_at', p.created_at, 'like_count', COALESCE(p.like_count, 0) )ORDER BY p.created_at DESC ) ) AS user FROM "User" u LEFT JOIN "Posts" p ON u.id = p.post_user WHERE u.id=$1 GROUP BY u.id, u.username, u.full_name;`,
+      [user.rows[0].id]
+    );
+    const posts = result.rows;
+    res.json({ posts });
+    console.log("PROFILE POSTS", posts);
+  } catch (error) {
+    console.error("Error getting posts", error);
+    res.status(500).json({ error: "Error getting posts" });
   }
 });
 

@@ -102,8 +102,4 @@ router.post("/register", async (req, res) => {
   }
 });
 
-// router.delete("/logout", (req, res) => {
-//   jwt.destroy(req.headers.authorization.split(" ")[1]);
-// });
-
 module.exports = router;
