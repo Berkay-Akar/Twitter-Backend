@@ -36,9 +36,8 @@ router.get("/user/:id", async (req, res) => {
 });
 
 // Posts a new like
-router.post("/:id", async (req, res) => {
+router.post("/:post_id", async (req, res) => {
   const token = req.headers.authorization.split(" ")[1];
-  console.log("token:", token);
   const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
   const user = await db.query(
@@ -51,32 +50,29 @@ router.post("/:id", async (req, res) => {
   }
 
   try {
-    const { id } = req.params;
+    const { post_id } = req.params;
 
     const existingLike = await db.query(
       "SELECT * FROM likes WHERE post_id = $1 AND user_id = $2",
-      [id, decoded.id]
+      [post_id, decoded.id]
     );
 
     if (existingLike.rows.length > 0) {
+      console.log("Post already liked by the user");
       return res.status(409).json({ error: "Post already liked by the user" });
     }
 
     const result = await db.query(
       "INSERT INTO likes (post_id, user_id) VALUES ($1, $2) RETURNING *",
-      [id, decoded.id]
+      [post_id, decoded.id]
     );
 
-    await db.query("UPDATE likes SET is_liked = true WHERE post_id = $1", [id]);
-
-    await db.query(
-      'UPDATE "Posts" SET like_count = like_count + 1 WHERE post_id = $1',
-      [id]
+    const response = await db.query(
+      'UPDATE "Posts" SET like_count = like_count + 1 WHERE post_id = $1 RETURNING *',
+      [post_id]
     );
 
-    const like = result.rows[0];
-    res.status(200).json({ like });
-    console.log(like);
+    res.status(200).json({ resultPost: result.rows[0] });
   } catch (error) {
     console.error("Error liking post", error);
     res.status(500).json({ error: "Error liking post" });

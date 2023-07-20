@@ -2,6 +2,20 @@ const express = require("express");
 const db = require("../db");
 const router = express.Router();
 const jwt = require("jsonwebtoken");
+const multer = require("multer");
+
+// Multer storage configuration
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, "uploads/profile"); // Upload profile pictures to 'uploads/profile' directory
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    cb(null, `${uniqueSuffix}-${file.originalname}`);
+  },
+});
+
+const upload = multer({ storage });
 
 router.get("/:id", async (req, res) => {
   try {
@@ -96,6 +110,28 @@ router.get("/", async (req, res) => {
   } catch (error) {
     console.error("Error getting posts", error);
     res.status(500).json({ error: "Error getting posts" });
+  }
+});
+
+// post profile picture by file
+router.post("/upload", upload.single("file"), async (req, res) => {
+  try {
+    // Get the file path of the uploaded profile picture
+    const profilePicturePath = req.file.path;
+
+    // Update the user's profile_picture column in the database with the file path
+    const token = req.headers.authorization.split(" ")[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    await db.query('UPDATE "User" SET profile_picture = $1 WHERE id = $2', [
+      profilePicturePath,
+      decoded.id,
+    ]);
+
+    res.json({ message: "Profile picture uploaded successfully" });
+  } catch (error) {
+    console.error("Error uploading profile picture:", error);
+    res.status(500).json({ error: "Error uploading profile picture" });
   }
 });
 

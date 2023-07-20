@@ -18,13 +18,34 @@ router.get("/", async (req, res) => {
     if (!user.rows[0]) {
       return res.status(404).json({ error: "User not found" });
     }
-    const result = await db.query(
-      'SELECT p.*, u.username, u.full_name, u.id FROM "Posts" p JOIN "User" u ON p.post_user = u.id  ORDER BY p.created_at DESC',
-      []
-    );
+
+    const result = await db.query(`
+      SELECT JSON_BUILD_OBJECT(
+        'post_id', p.post_id,
+        'post_text', p.post_text,
+        'post_user', p.post_user,
+        'create_dat', p.created_at,
+        'like_count', COALESCE(p.like_count, 0),
+        'user', JSON_BUILD_OBJECT('id', u.id, 'full_name', u.full_name, 'username', u.username),
+        'comments', JSON_AGG(
+          JSON_BUILD_OBJECT(
+            'comment_id', c.comment_id,
+            'comment_text', c.comment_text,
+            'created_at', c.created_at,
+            'user', JSON_BUILD_OBJECT('id', uc.id, 'username', uc.username)
+          ) ORDER BY c.created_at DESC
+        )
+      ) AS post
+      FROM "Posts" p
+      LEFT JOIN "Comments" c ON p.post_id = c.post_id
+      LEFT JOIN "User" u ON p.post_user = u.id
+      LEFT JOIN "User" uc ON c.comment_user = uc.id
+      GROUP BY p.post_id, u.id, uc.id
+      ORDER BY p.created_at DESC;
+    `);
+
     const posts = result.rows;
     res.json({ posts });
-    console.log(posts);
   } catch (error) {
     console.error("Error getting posts", error);
     res.status(500).json({ error: "Error getting posts" });
@@ -74,9 +95,8 @@ router.post("/", async (req, res) => {
     const post = result.rows[0];
     const username = user.rows[0].username;
     const full_name = user.rows[0].full_name;
-    res
-      .status(201)
-      .json({ post: { ...post, username }, post: { ...post, full_name } });
+    console.log("RESULT ROWS:", result.rows[0]);
+    res.status(201).json({ post: { ...post, username, full_name } });
     console.log(post);
   } catch (error) {
     console.error("Error creating post", error);
@@ -155,14 +175,15 @@ router.get("/:id", async (req, res) => {
   try {
     const { id } = req.params;
     const result = await db.query(
-      `SELECT JSON_BUILD_OBJECT( 'id', p.post_id, 'text', p.post_text, 'createdat', p.created_at, 'user', JSON_BUILD_OBJECT( 'id', u.id, 'username', u.username ), 'comments', JSON_AGG( JSON_BUILD_OBJECT( 'comment_id', c.comment_id, 'comment_text', c.comment_text, 'created_at', c.created_at, 'user', JSON_BUILD_OBJECT( 'id', uc.id, 'username', uc.username ) ) ORDER BY c.created_at DESC ) ) AS post FROM "Posts" p LEFT JOIN "Comments" c ON p.post_id = c.post_id LEFT JOIN "User" u ON p.post_user = u.id LEFT JOIN "User" uc ON c.comment_user = uc.id WHERE p.post_id = $1 GROUP BY p.post_id, u.id, uc.id;`,
+      `SELECT JSON_BUILD_OBJECT( 'id', p.post_id, 'text', p.post_text, 'createdat', p.created_at, 'user', JSON_BUILD_OBJECT('id', u.id, 'username', u.username), 'comments', JSON_AGG( JSON_BUILD_OBJECT( 'comment_id', c.comment_id, 'comment_text', c.comment_text, 'created_at', c.created_at, 'user', JSON_BUILD_OBJECT('id', uc.id, 'username', uc.username) ) ORDER BY c.created_at DESC ), 'is_liked', EXISTS ( SELECT 1 FROM likes WHERE post_id = p.post_id AND user_id = $1 ) ) AS post FROM "Posts" p LEFT JOIN "Comments" c ON p.post_id = c.post_id LEFT JOIN "User" u ON p.post_user = u.id LEFT JOIN "User" uc ON c.comment_user = uc.id WHERE p.post_id = $1 GROUP BY p.post_id, u.id, uc.id;`,
       [id]
     );
     const post = result.rows[0].post;
     if (!post) {
       return res.status(404).json({ error: "Post not found" });
     }
-    res.json({ post });
+    const is_liked = post.is_liked;
+    res.json({ post: { ...post, is_liked } });
     console.log(post);
   } catch (error) {
     console.error("Error getting post", error);
@@ -170,6 +191,22 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-// /tweets/ - get all tweets for a user (home feed)
+// get all users for liked posts
+router.get("/liked/user/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log("post_id:", id);
+    const result = await db.query(
+      `SELECT user_id, post_id FROM likes  WHERE likes.post_id = $1`,
+      [id]
+    );
+    const users = result.rows;
+    console.log("asdasdasd", result.rows);
+    res.json({ users });
+  } catch (error) {
+    console.error("Error getting users", error);
+    res.status(500).json({ error: "Error getting users" });
+  }
+});
 
 module.exports = router;

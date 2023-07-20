@@ -19,6 +19,7 @@ router.get("/", async (req, res) => {
     if (!user.rows[0]) {
       return res.status(404).json({ error: "User not found" });
     }
+
     const result = await db.query(
       `SELECT c.*, u.username, u.id, p.post_text
        FROM "Comments" c
@@ -28,7 +29,9 @@ router.get("/", async (req, res) => {
        ORDER BY c.created_at DESC`,
       [user.rows[0].id]
     );
+
     const comments = result.rows;
+    console.log("Comments:", comments);
     res.json({ comments });
   } catch (error) {
     console.error("Error getting comments", error);
@@ -54,7 +57,13 @@ router.post("/", async (req, res) => {
       [user.rows[0].id, post_id, comment_text, parent_comment_id]
     );
     const comment = result.rows[0];
-    res.json({ comment });
+
+    const username = user.rows[0].username;
+    console.log(user.rows[0]);
+    const full_name = user.rows[0].full_name;
+    res.json({
+      comment: { ...comment, username, full_name },
+    });
   } catch (error) {
     console.error("Error creating comment", error);
     res.status(500).json({ error: "Error creating comment" });
@@ -107,6 +116,45 @@ router.get("/:id", async (req, res) => {
   } catch (error) {
     console.error("Error getting comments", error);
     res.status(500).json({ error: "Error getting comments" });
+  }
+});
+
+//delete a comment
+
+router.delete("/:id", async (req, res) => {
+  try {
+    const token = req.headers.authorization.split(" ")[1];
+    console.log("token:", token);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    const user = await db.query(
+      'SELECT id, username, full_name FROM "User" WHERE id = $1',
+      [decoded.id]
+    );
+
+    if (!user.rows[0]) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const comments = await db.query(
+      'SELECT * FROM "Comments" WHERE comment_user = $1',
+      [user.rows[0].id]
+    );
+
+    if (user.rows[0].id !== comments.rows[0].comment_user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const { id } = req.params;
+    const result = await db.query(
+      'DELETE FROM "Comments" WHERE comment_id = $1',
+      [id]
+    );
+    res.json({ message: "Comment deleted" });
+    console.log("Comment deleted", result.rows[0]);
+  } catch (error) {
+    console.error("Error delete comment", error);
+    res.status(500).json({ error: "Error delete comment" });
   }
 });
 
