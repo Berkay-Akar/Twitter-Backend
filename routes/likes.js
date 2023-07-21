@@ -2,6 +2,7 @@ const express = require("express");
 const db = require("../db");
 const router = express.Router();
 const jwt = require("jsonwebtoken");
+const redis = require("redis");
 
 // Create a route to handle getting all likes for a specific post
 router.get("/:id", async (req, res) => {
@@ -59,7 +60,7 @@ router.post("/:post_id", async (req, res) => {
 
     if (existingLike.rows.length > 0) {
       console.log("Post already liked by the user");
-      return res.status(409).json({ error: "Post already liked by the user" });
+      return res.status(200).json({ is_liked: true });
     }
 
     const result = await db.query(
@@ -71,8 +72,9 @@ router.post("/:post_id", async (req, res) => {
       'UPDATE "Posts" SET like_count = like_count + 1 WHERE post_id = $1 RETURNING *',
       [post_id]
     );
-
-    res.status(200).json({ resultPost: result.rows[0] });
+    console.log("response:", response);
+    const post = response.rows[0];
+    res.status(200).json({ post });
   } catch (error) {
     console.error("Error liking post", error);
     res.status(500).json({ error: "Error liking post" });
@@ -116,7 +118,15 @@ router.delete("/:id", async (req, res) => {
       [id]
     );
 
-    res.status(200).json({ message: "Like deleted" });
+    const response = await db.query(
+      'SELECT post_id FROM "Posts" WHERE post_id = $1',
+      [id]
+    );
+
+    console.log("response:", response);
+    const post = response.rows[0];
+
+    res.status(200).json({ post });
   } catch (error) {
     console.error("Error deleting like", error);
     res.status(500).json({ error: "Error deleting like" });

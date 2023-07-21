@@ -7,7 +7,6 @@ const jwt = require("jsonwebtoken");
 router.get("/", async (req, res) => {
   try {
     const token = req.headers.authorization.split(" ")[1];
-    console.log("token:", token);
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     const user = await db.query(
@@ -19,30 +18,35 @@ router.get("/", async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    const result = await db.query(`
+    const result = await db.query(
+      `
       SELECT JSON_BUILD_OBJECT(
         'post_id', p.post_id,
         'post_text', p.post_text,
         'post_user', p.post_user,
-        'create_dat', p.created_at,
+        'created_at', p.created_at,
         'like_count', COALESCE(p.like_count, 0),
         'user', JSON_BUILD_OBJECT('id', u.id, 'full_name', u.full_name, 'username', u.username),
         'comments', JSON_AGG(
-          JSON_BUILD_OBJECT(
-            'comment_id', c.comment_id,
-            'comment_text', c.comment_text,
-            'created_at', c.created_at,
-            'user', JSON_BUILD_OBJECT('id', uc.id, 'username', uc.username)
-          ) ORDER BY c.created_at DESC
-        )
-      ) AS post
-      FROM "Posts" p
-      LEFT JOIN "Comments" c ON p.post_id = c.post_id
-      LEFT JOIN "User" u ON p.post_user = u.id
-      LEFT JOIN "User" uc ON c.comment_user = uc.id
-      GROUP BY p.post_id, u.id, uc.id
-      ORDER BY p.created_at DESC;
-    `);
+            JSON_BUILD_OBJECT(
+                'comment_id', c.comment_id,
+                'comment_text', c.comment_text,
+                'created_at', c.created_at,
+                'user', JSON_BUILD_OBJECT('id', uc.id, 'username', uc.username)
+            )
+            ORDER BY c.created_at DESC
+        ),
+        'is_liked', EXISTS (SELECT 1 FROM likes WHERE post_id = p.post_id AND user_id = $1)
+    ) AS post
+    FROM "Posts" p
+    LEFT JOIN "Comments" c ON p.post_id = c.post_id
+    LEFT JOIN "User" u ON p.post_user = u.id
+    LEFT JOIN "User" uc ON c.comment_user = uc.id
+    GROUP BY p.post_id, u.id, uc.id
+    ORDER BY p.created_at DESC;
+    `,
+      [decoded.id]
+    );
 
     const posts = result.rows;
     res.json({ posts });
@@ -63,7 +67,6 @@ router.post("/likes", async (req, res) => {
       [id]
     );
     const post = result.rows[0];
-    console.log("post:", post);
     res.status(200).json({ post });
     console.log(post);
   } catch (error) {
@@ -106,6 +109,23 @@ router.post("/", async (req, res) => {
 
 // update a post
 router.put("/:id", async (req, res) => {
+  const token = req.headers.authorization.split(" ")[1];
+  console.log("token:", token);
+  const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+  const user = await db.query(
+    'SELECT id, username, full_name FROM "User" WHERE id = $1',
+    [decoded.id]
+  );
+
+  if (!user.rows[0]) {
+    return res.status(404).json({ error: "User not found" });
+  }
+
+  if (user.rows[0].id !== decoded.id) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
   try {
     const { id } = req.params;
     const { post_text } = req.body;
@@ -175,16 +195,39 @@ router.get("/:id", async (req, res) => {
   try {
     const { id } = req.params;
     const result = await db.query(
-      `SELECT JSON_BUILD_OBJECT( 'id', p.post_id, 'text', p.post_text, 'createdat', p.created_at, 'user', JSON_BUILD_OBJECT('id', u.id, 'username', u.username), 'comments', JSON_AGG( JSON_BUILD_OBJECT( 'comment_id', c.comment_id, 'comment_text', c.comment_text, 'created_at', c.created_at, 'user', JSON_BUILD_OBJECT('id', uc.id, 'username', uc.username) ) ORDER BY c.created_at DESC ), 'is_liked', EXISTS ( SELECT 1 FROM likes WHERE post_id = p.post_id AND user_id = $1 ) ) AS post FROM "Posts" p LEFT JOIN "Comments" c ON p.post_id = c.post_id LEFT JOIN "User" u ON p.post_user = u.id LEFT JOIN "User" uc ON c.comment_user = uc.id WHERE p.post_id = $1 GROUP BY p.post_id, u.id, uc.id;`,
-      [id]
+      `SELECT JSON_BUILD_OBJECT(
+        'id', p.post_id,
+        'text', p.post_text,
+        'created_at', p.created_at,
+        'user', JSON_BUILD_OBJECT('id', u.id, 'username', u.username),
+        'comments', 
+          CASE 
+            WHEN COUNT(c.comment_id) > 0 
+            THEN JSON_AGG(
+              JSON_BUILD_OBJECT(
+                'comment_id', c.comment_id,
+                'comment_text', c.comment_text,
+                'created_at', c.created_at,
+                'user', JSON_BUILD_OBJECT('id', uc.id, 'username', uc.username)
+              ) ORDER BY c.created_at DESC
+            )
+            ELSE JSON_BUILD_ARRAY() 
+          END,
+        'is_liked', EXISTS (SELECT 1 FROM likes WHERE post_id = p.post_id AND user_id = $1)
+      ) AS post
+      FROM "Posts" p
+      LEFT JOIN "Comments" c ON p.post_id = c.post_id
+      LEFT JOIN "User" u ON p.post_user = u.id
+      LEFT JOIN "User" uc ON c.comment_user = uc.id
+      WHERE p.post_id = $1
+      GROUP BY p.post_id, u.id;`,
+      [id] // Add `id` parameter for the main `EXISTS` subquery and for `$1`
     );
     const post = result.rows[0].post;
     if (!post) {
       return res.status(404).json({ error: "Post not found" });
     }
-    const is_liked = post.is_liked;
-    res.json({ post: { ...post, is_liked } });
-    console.log(post);
+    res.json({ post });
   } catch (error) {
     console.error("Error getting post", error);
     res.status(500).json({ error: "Error getting post" });
@@ -195,13 +238,11 @@ router.get("/:id", async (req, res) => {
 router.get("/liked/user/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    console.log("post_id:", id);
     const result = await db.query(
       `SELECT user_id, post_id FROM likes  WHERE likes.post_id = $1`,
       [id]
     );
     const users = result.rows;
-    console.log("asdasdasd", result.rows);
     res.json({ users });
   } catch (error) {
     console.error("Error getting users", error);

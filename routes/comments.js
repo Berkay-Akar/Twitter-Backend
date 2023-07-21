@@ -25,13 +25,13 @@ router.get("/", async (req, res) => {
        FROM "Comments" c
        JOIN "User" u ON c.comment_user = u.id
        JOIN "Posts" p ON c.post_id = p.post_id
-       WHERE c.comment_user = $1
+
        ORDER BY c.created_at DESC`,
-      [user.rows[0].id]
+      []
     );
 
-    const comments = result.rows;
-    console.log("Comments:", comments);
+    const comments = result.rows; // Assign the entire array of comments, not just the first element (result.rows[0])
+    console.log("result:", comments);
     res.json({ comments });
   } catch (error) {
     console.error("Error getting comments", error);
