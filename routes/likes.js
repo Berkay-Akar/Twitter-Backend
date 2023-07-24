@@ -133,4 +133,29 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
+router.post("/like/post", async (req, res) => {
+  try {
+    const { id } = req.body;
+    const token = req.headers.authorization.split(" ")[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await db.query(
+      'SELECT id, username, full_name FROM "User" WHERE id = $1',
+      [decoded.id]
+    );
+    if (!user.rows[0]) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    const result = await db.query(
+      "INSERT INTO likes (user_id, post_id) VALUES ($1, $2) RETURNING *",
+      [user.rows[0].id, id]
+    );
+    const like = result.rows[0];
+    console.log(like);
+    res.json({ like });
+  } catch (error) {
+    console.error("Error creating like", error);
+    res.status(500).json({ error: "Error creating like" });
+  }
+});
+
 module.exports = router;

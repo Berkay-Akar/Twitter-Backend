@@ -25,6 +25,8 @@ router.get("/", async (req, res) => {
         'post_text', p.post_text,
         'post_user', p.post_user,
         'created_at', p.created_at,
+        'username', u.username,
+        'full_name', u.full_name,
         'like_count', COALESCE(p.like_count, 0),
         'user', JSON_BUILD_OBJECT('id', u.id, 'full_name', u.full_name, 'username', u.username),
         'comments', JSON_AGG(

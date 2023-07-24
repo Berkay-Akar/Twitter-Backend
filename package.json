@@ -15,7 +15,7 @@
     "redis": "^4.6.7"
   },
   "scripts": {
-    "start": "nodemon server/server.js"
+    "start": "nodemon server.js"
   },
   "devDependencies": {
     "dotenv": "^16.3.1",
